@@ -175,7 +175,7 @@ if st.session_state.current_q:
         elif is_answer_correct(user_answer, correct_answer):
             st.session_state.result_msg = f"✅ <b>정답입니다! 정말 멋져요!</b><br><span class='cute-info'>(정답: 👉 {correct_answer})</span>"
         else:
-            st.session_state.result_msg = f"❌ <b>오답이에요! 다시 도전해 보세요.</b><br><span class='cute-info'>(정답: 👉 {correct_answer})</span>"
+            st.session_state.result_msg = f"❌ <b>아쉽지만 오답이에요!</b><br><span class='cute-info'>(정답: 👉 {correct_answer})</span>"
 
     if st.session_state.result_msg:
         if "정답입니다" in st.session_state.result_msg:
