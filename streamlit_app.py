@@ -99,7 +99,7 @@ if st.session_state.current_q:
         </button>
     """, height=60)
 
-    # 정답 입력창
+    # 정답 입력창 
     st.session_state.input_answer = st.text_input(
         "정답을 아래 칸에 써 주세요!",
         value=st.session_state.input_answer,
