@@ -1,151 +1,89 @@
 import streamlit as st
-import pandas as pd
-import math
-from pathlib import Path
+import pdfplumber
+import random
+import re
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+PDF_PATH = "도전골든벨_어린이천문대_2025.pdf"
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+def extract_quiz_from_pdf(pdf_path):
+    quiz_list = []
+    level_map = {
+        "난이도 하": "하",
+        "난이도 중": "중",
+        "난이도 상": "상",
+        "난이도 최상": "최상"
+    }
+    current_level = None
+    question_pattern = re.compile(r"^\d+\.\s*(.+?)(?:정답\s*:\s*|$)")
+    answer_pattern = re.compile(r"정답\s*:\s*([^\n]+)")
+    
+    with pdfplumber.open(pdf_path) as pdf:
+        text = ""
+        for page in pdf.pages:
+            text += page.extract_text() + "\n"
+
+    lines = text.split("\n")
+    for line in lines:
+        for key, val in level_map.items():
+            if key in line:
+                current_level = val
+        if re.match(r"^\d+\.", line) and current_level:
+            q = question_pattern.search(line)
+            a = answer_pattern.search(line)
+            if q and a:
+                quiz_list.append({
+                    "level": current_level,
+                    "question": q.group(1).strip(),
+                    "answer": a.group(1).strip()
+                })
+    return quiz_list
 
 @st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+def load_quiz():
+    return extract_quiz_from_pdf(PDF_PATH)
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+quiz_bank = load_quiz()
+levels = ["하", "중", "상", "최상"]
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+st.title("🌟 도전! 골든벨 랜덤 퀴즈 (자동 음성 출력)")
+st.write("난이도를 고르고 [질문 랜덤 출제] 버튼을 누르면, 화면에 문제도 보이고 소리도 자동으로 나와요!")
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+level = st.radio("난이도를 골라보세요!", levels, horizontal=True)
+filtered = [q for q in quiz_bank if q["level"] == level]
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
+if "current_q" not in st.session_state:
+    st.session_state.current_q = None
+    st.session_state.show_a = False
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+col1, col2 = st.columns(2)
 
-    return gdp_df
+with col1:
+    if st.button("🎲 질문 랜덤 출제"):
+        st.session_state.current_q = random.choice(filtered) if filtered else None
+        st.session_state.show_a = False
 
-gdp_df = get_gdp_data()
+with col2:
+    if st.button("정답 보기"):
+        st.session_state.show_a = True
 
-# -----------------------------------------------------------------------------
-# Draw the actual page
+if st.session_state.current_q:
+    st.info("Q. " + st.session_state.current_q["question"])
+    # 문제 나올 때마다 자동으로 음성 재생 (브라우저 TTS)
+    st.components.v1.html(f"""
+        <script>
+            var utter = new window.SpeechSynthesisUtterance("{st.session_state.current_q["question"].replace('"','').replace("'",'')}");
+            utter.lang = "ko-KR";
+            utter.rate = 1.0;  // 읽는 속도 (1.0이 기본)
+            window.speechSynthesis.cancel(); // 이전 읽기 멈춤
+            window.speechSynthesis.speak(utter);
+        </script>
+    """, height=0)
 
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
+    if st.session_state.show_a:
+        st.success("A. " + st.session_state.current_q["answer"])
+elif not filtered:
+    st.warning("선택한 난이도의 문제가 아직 없어요!")
+else:
+    st.write("⬅️ [질문 랜덤 출제] 버튼을 눌러주세요!")
 
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
-
-
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
-
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+st.caption("문제는 화면에 뜨고, 동시에 자동으로 소리도 나와요!")
