@@ -94,7 +94,7 @@ level_labels = {"하":"🍭 쉬움", "중":"🧃 보통", "상":"🍰 조금 어
 st.markdown('<div class="cute-title">🍓 도전! 골든벨 퀴즈 놀이방 🍓</div>', unsafe_allow_html=True)
 st.markdown('<div class="cute-sub">문제를 풀고, <b>정답을 아래 칸에 예쁘게 입력</b>해 보세요!<br>정답이 여러 개면 그 중 하나만 맞아도 OK!</div>', unsafe_allow_html=True)
 
-# 난이도 라디오
+# 난이도 라디오 
 level = st.radio("난이도를 골라 주세요!", levels, captions=[level_labels[l] for l in levels], horizontal=True, key="level", help="내가 원하는 문제의 난이도를 골라봐요!")
 filtered = [q for q in quiz_bank if q["level"] == level]
 
