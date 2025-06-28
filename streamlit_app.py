@@ -5,7 +5,6 @@ import re
 
 PDF_PATH = "도전골든벨_어린이천문대_2025.pdf"
 
-# PDF에서 문제 추출하는 함수
 def extract_quiz_from_pdf(pdf_path):
     quiz_list = []
     level_map = {
@@ -17,14 +16,12 @@ def extract_quiz_from_pdf(pdf_path):
     current_level = None
     question_pattern = re.compile(r"^\d+\.\s*(.+?)(?:정답\s*:\s*|$)")
     answer_pattern = re.compile(r"정답\s*:\s*([^\n]+)")
-    
     with pdfplumber.open(pdf_path) as pdf:
         text = ""
         for page in pdf.pages:
             page_text = page.extract_text()
             if page_text:
                 text += page_text + "\n"
-
     lines = text.split("\n")
     for line in lines:
         for key, val in level_map.items():
@@ -45,22 +42,28 @@ def extract_quiz_from_pdf(pdf_path):
 def load_quiz():
     return extract_quiz_from_pdf(PDF_PATH)
 
+def is_answer_correct(user, answer):
+    # "또는"이나 "or"로 분리된 정답 리스트 중 하나와 정확히 일치할 때만 정답!
+    answer_list = [a.strip() for a in re.split(r'또는|or', answer, flags=re.IGNORECASE)]
+    return user.strip() in answer_list
+
 quiz_bank = load_quiz()
 levels = ["하", "중", "상", "최상"]
 
 st.title("🎉 도전! 골든벨 퀴즈 놀이방")
-st.write("문제를 보고, 내가 생각한 정답을 써 보거나, 그냥 바로 정답확인 버튼을 눌러도 정답이 나와요! 궁금한 문제나 결과는 소리로도 들을 수 있어요.")
+st.write("문제를 보고 정답을 직접 쓰거나, 마이크로 말해서 입력할 수 있어요! (정답에 '또는', 'or'이 있으면 그 중 하나만 맞춰도 정답!)")
 
 st.markdown("#### 난이도를 골라 주세요!")
 level = st.radio("", levels, horizontal=True, captions=["쉬움", "보통", "조금 어려움", "진짜 어려움"])
-
 filtered = [q for q in quiz_bank if q["level"] == level]
 
+# 세션 상태
 if "current_q" not in st.session_state:
     st.session_state.current_q = None
+if "input_answer" not in st.session_state:
     st.session_state.input_answer = ""
+if "result_msg" not in st.session_state:
     st.session_state.result_msg = ""
-    st.session_state.result_msg_tts = ""
 
 col1, col2 = st.columns(2)
 
@@ -69,90 +72,81 @@ with col1:
         st.session_state.current_q = random.choice(filtered) if filtered else None
         st.session_state.input_answer = ""
         st.session_state.result_msg = ""
-        st.session_state.result_msg_tts = ""
 
-# 문제, 정답 입력, 정답확인, 음성출력 버튼
 if st.session_state.current_q:
     st.info("🔔 문제: " + st.session_state.current_q["question"])
 
-    # "음성으로 들려줘!" 버튼
-    st.components.v1.html(f"""
-        <button onclick="
-            var speak = function() {{
-                var voices = window.speechSynthesis.getVoices();
-                var utter = new window.SpeechSynthesisUtterance('{st.session_state.current_q["question"].replace("'", "")}');
-                var cuteVoice = voices.find(v => v.name.includes('Yuna')) 
-                    || voices.find(v => v.lang=='ko-KR' && v.name.includes('여성'))
-                    || voices.find(v => v.lang=='ko-KR');
-                if(cuteVoice) utter.voice = cuteVoice;
-                utter.lang = 'ko-KR';
-                utter.rate = 1.15;
-                window.speechSynthesis.cancel();
-                window.speechSynthesis.speak(utter);
-            }};
-            if (window.speechSynthesis.getVoices().length === 0) {{
-                window.speechSynthesis.onvoiceschanged = speak;
-            }} else {{
-                speak();
-            }}
-        " style="font-size:18px;padding:8px 20px;border-radius:12px;background:#ffd700;border:none;cursor:pointer;margin-bottom:8px;">
-            🔊 음성으로 들려줘!
-        </button>
-    """, height=70)
+    # 마이크 버튼만 단독 표시
+    st.markdown("""
+    <div style="display:flex;gap:12px;align-items:center;">
+      <button id="voice_btn" style="font-size:22px;padding:7px 18px;border-radius:50%;background:#ffd700;border:none;cursor:pointer;" title="마이크로 말하기">🎤 정답 말하기</button>
+    </div>
+    <script>
+    let recognizing = false;
+    let recognition;
+    document.getElementById('voice_btn').onclick = function() {
+        if (!('webkitSpeechRecognition' in window)) {
+            alert('이 브라우저는 음성 인식을 지원하지 않아요!');
+            return;
+        }
+        if (!recognition) {
+            recognition = new webkitSpeechRecognition();
+            recognition.lang = 'ko-KR';
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+            recognition.onresult = function(event) {
+                var speechResult = event.results[0][0].transcript;
+                // Streamlit의 실제 입력창에 강제로 입력
+                const input = window.parent.document.querySelector('input[data-testid="stTextInput"]');
+                if(input) {
+                    input.value = speechResult;
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            };
+            recognition.onerror = function(event) {
+                alert('음성 인식 오류가 발생했어요: ' + event.error);
+            };
+            recognition.onend = function() {
+                recognizing = false;
+            };
+        }
+        if (!recognizing) {
+            recognition.start();
+            recognizing = true;
+        } else {
+            recognition.stop();
+            recognizing = false;
+        }
+    };
+    </script>
+    """, unsafe_allow_html=True)
 
-    # 정답 입력칸
+    # 정답 입력창
     st.session_state.input_answer = st.text_input(
-        "내가 생각한 정답을 여기에 써 보세요! (안 써도 돼요)",
+        "정답을 여기에 써 주세요! (위 마이크 버튼을 누르고 말하면 여기에 자동 입력돼요)",
         value=st.session_state.input_answer,
         key="input_box"
     )
 
-    # 정답 확인 버튼
+    # 정답확인
     if st.button("정답확인"):
         user_answer = st.session_state.input_answer.strip()
         correct_answer = st.session_state.current_q["answer"].strip()
         if user_answer == "":
-            # 입력을 안 했으면 바로 정답만 보여주기!
-            st.session_state.result_msg = f"정답은 👉 {correct_answer} 입니다!"
-            st.session_state.result_msg_tts = f"정답은 {correct_answer} 입니다!"
-        elif user_answer == correct_answer:
-            st.session_state.result_msg = "🎉 정답이에요! 정말 멋져요!"
-            st.session_state.result_msg_tts = "정답이에요! 정말 멋져요!"
+            st.session_state.result_msg = f"정답을 입력해 주세요! (정답: 👉 {correct_answer})"
+        elif is_answer_correct(user_answer, correct_answer):
+            st.session_state.result_msg = f"✅ 정답입니다! 정말 멋져요!\n\n(정답: 👉 {correct_answer})"
         else:
-            st.session_state.result_msg = f"🙅 아쉽지만 오답이에요!\n\n정답은 👉 {correct_answer} 입니다."
-            st.session_state.result_msg_tts = f"아쉽지만 오답이에요. 정답은 {correct_answer} 입니다."
+            st.session_state.result_msg = f"❌ 오답이에요! 다시 도전해 보세요.\n\n(정답: 👉 {correct_answer})"
 
-    # 결과 메시지 출력 및 음성 재생
+    # 결과 메시지(텍스트로 안내)
     if st.session_state.result_msg:
-        if "정답이에요" in st.session_state.result_msg:
+        if "정답입니다" in st.session_state.result_msg:
             st.success(st.session_state.result_msg)
         elif "오답" in st.session_state.result_msg:
             st.error(st.session_state.result_msg)
         else:
             st.info(st.session_state.result_msg)
-
-        # 정답 결과를 음성으로 출력 (자동)
-        st.components.v1.html(f"""
-            <script>
-                var speak = function() {{
-                    var voices = window.speechSynthesis.getVoices();
-                    var utter = new window.SpeechSynthesisUtterance('{st.session_state.result_msg_tts}');
-                    var cuteVoice = voices.find(v => v.name.includes('Yuna')) 
-                        || voices.find(v => v.lang=='ko-KR' && v.name.includes('여성'))
-                        || voices.find(v => v.lang=='ko-KR');
-                    if(cuteVoice) utter.voice = cuteVoice;
-                    utter.lang = 'ko-KR';
-                    utter.rate = 1.15;
-                    window.speechSynthesis.cancel();
-                    window.speechSynthesis.speak(utter);
-                }};
-                if (window.speechSynthesis.getVoices().length === 0) {{
-                    window.speechSynthesis.onvoiceschanged = speak;
-                }} else {{
-                    speak();
-                }}
-            </script>
-        """, height=0)
 elif not filtered:
     st.warning("이 난이도에는 문제가 아직 없어요! 다른 난이도를 골라 보세요.")
 else:
@@ -170,4 +164,4 @@ with open(PDF_PATH, "rb") as f:
     )
 
 st.caption("문제집 PDF 파일을 내려받아 더 많은 문제를 볼 수 있어요!")
-st.info("문제나 정답 결과를 소리로 듣고 싶으면 '음성으로 들려줘!' 버튼이나 정답확인 버튼을 눌러보세요!")
+st.info("정답은 아래 칸에 직접 쓰거나, 🎤 마이크 버튼을 누르고 말해도 입력돼요! (크롬, 삼성인터넷 등 최신 브라우저 권장)")
