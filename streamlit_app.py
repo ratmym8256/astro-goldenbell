@@ -48,46 +48,54 @@ def load_quiz():
 quiz_bank = load_quiz()
 levels = ["하", "중", "상", "최상"]
 
-# 제목과 안내
 st.title("🎉 도전! 골든벨 퀴즈 놀이방")
-st.write("원하는 난이도를 고르고, 문제를 풀어보세요! 궁금한 문제는 소리로도 들을 수 있어요!")
+st.write("문제를 보고, 내가 생각한 정답을 써 보거나, 그냥 바로 정답확인 버튼을 눌러도 정답이 나와요!")
 
-# 난이도 안내
 st.markdown("#### 난이도를 골라 주세요!")
 level = st.radio("", levels, horizontal=True, captions=["쉬움", "보통", "조금 어려움", "진짜 어려움"])
 
 filtered = [q for q in quiz_bank if q["level"] == level]
 
-# 상태 초기화
 if "current_q" not in st.session_state:
     st.session_state.current_q = None
-    st.session_state.show_a = False
+    st.session_state.input_answer = ""
+    st.session_state.result_msg = ""
 
 col1, col2 = st.columns(2)
 
-# 버튼 및 상태 변경
 with col1:
     if st.button("🧩 새로운 문제 나와라!"):
         st.session_state.current_q = random.choice(filtered) if filtered else None
-        st.session_state.show_a = False
+        st.session_state.input_answer = ""
+        st.session_state.result_msg = ""
 
-with col2:
-    if st.button("✨ 정답 알려줘!"):
-        st.session_state.show_a = True
-
-# 문제, 음성 버튼
+# 문제, 정답 입력창, 결과
 if st.session_state.current_q:
     st.info("🔔 문제: " + st.session_state.current_q["question"])
 
-    # "음성으로 들려줘!" 버튼 (모바일, PC 모두에서 동작)
-    st.components.v1.html(f"""
-        <button onclick="var utter=new window.SpeechSynthesisUtterance('{st.session_state.current_q["question"].replace("'", "")}'); utter.lang='ko-KR'; utter.rate=1.0; window.speechSynthesis.cancel(); window.speechSynthesis.speak(utter);" style="font-size:18px;padding:8px 20px;border-radius:12px;background:#ffd700;border:none;cursor:pointer;margin-bottom:8px;">
-            🔊 음성으로 들려줘!
-        </button>
-    """, height=60)
+    # 정답 입력받기
+    st.session_state.input_answer = st.text_input("내가 생각한 정답을 여기에 써 보세요! (안 써도 돼요)", value=st.session_state.input_answer, key="input_box")
 
-    if st.session_state.show_a:
-        st.success("🎯 정답: " + st.session_state.current_q["answer"])
+    # 정답 확인 버튼
+    if st.button("정답확인"):
+        user_answer = st.session_state.input_answer.strip()
+        correct_answer = st.session_state.current_q["answer"].strip()
+        if user_answer == "":
+            # 입력을 안 했으면 바로 정답만 보여주기!
+            st.session_state.result_msg = f"정답은 👉 {correct_answer} 입니다!"
+        elif user_answer == correct_answer:
+            st.session_state.result_msg = "🎉 정답이에요! 정말 멋져요!"
+        else:
+            st.session_state.result_msg = f"🙅 아쉽지만 오답이에요!\n\n정답은 👉 {correct_answer} 입니다."
+
+    # 결과 메시지 출력
+    if st.session_state.result_msg:
+        if "정답이에요" in st.session_state.result_msg:
+            st.success(st.session_state.result_msg)
+        elif "오답" in st.session_state.result_msg:
+            st.error(st.session_state.result_msg)
+        else:
+            st.info(st.session_state.result_msg)
 elif not filtered:
     st.warning("이 난이도에는 문제가 아직 없어요! 다른 난이도를 골라 보세요.")
 else:
@@ -105,4 +113,4 @@ with open(PDF_PATH, "rb") as f:
     )
 
 st.caption("문제집 PDF 파일을 내려받아 더 많은 문제를 볼 수 있어요!")
-st.info("문제를 소리로 듣고 싶으면 '음성으로 들려줘!' 버튼을 꼭 눌러 보세요! (핸드폰, 태블릿, 컴퓨터 모두에서 잘 돼요.)")
+st.info("정답을 직접 써 봐도 되고, 안 써도 정답확인 버튼을 누르면 바로 정답이 나와요!")
